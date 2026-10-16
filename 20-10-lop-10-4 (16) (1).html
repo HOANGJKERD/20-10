@@ -21,7 +21,7 @@ window.TINY_PERF = (() => {
       mobile ? .84 : lite ? 1.15 : maxDpr,
       Math.sqrt(maxCanvasPixels / Math.max(1, w*h))));
   }
-  return { lite, mobile, canvasDpr, ambientFps: mobile ? 60 : lite ? 24 : 60,
+  return { lite, mobile, canvasDpr, ambientFps: mobile ? 30 : lite ? 24 : 60,
     roverFps:mobile ? 45 : lite ? 30 : 60,
     orbitFps:mobile ? 45 : lite ? 24 : 60,
     leafFps:mobile ? 60 : lite ? 24 : 60 };
@@ -6807,6 +6807,45 @@ a.shop-product {
   html, body { max-width: 100vw; overflow-x: hidden !important; overscroll-behavior-x: none; }
 }
 
+/* ===== Hiệu năng điện thoại: cảnh cỏ hoa =====
+   Cảnh này có ~280 nét SVG. Animation stroke-dashoffset (vẽ nét) và rotate từng nhóm cỏ chạy trên
+   luồng chính và buộc vẽ lại cả SVG mỗi khung hình -> tụt còn ~10 FPS trên điện thoại.
+   Thay bằng: nét hiện sẵn + cả khối cỏ mọc lên / lắc nhẹ bằng transform (GPU xử lý, gần như miễn phí). */
+@media (max-width: 900px), (pointer: coarse) {
+  html #co-hoa .net,
+  html #co-hoa.hien-thi .net { animation: none !important; stroke-dashoffset: 0 !important; }
+  html #co-hoa .lac { animation: none !important; }
+  html #co-hoa.hien-thi {
+    transform-origin: 50% 100%;
+    will-change: transform, opacity;
+    animation: coHoaGrow 1.6s cubic-bezier(.2,.7,.2,1) both, coHoaSway 4.2s ease-in-out 1.6s infinite alternate;
+  }
+  @keyframes coHoaGrow { from { transform: scaleY(.5); } to { transform: scaleY(1); } }
+  @keyframes coHoaSway { from { transform: skewX(-1.3deg); } to { transform: skewX(1.3deg); } }
+}
+
+/* ===== Hiệu năng điện thoại: lớp trang trí #tiny-wish-decor =====
+   Mỗi chấm sao / tia sáng SVG vừa có filter: drop-shadow vừa có animation opacity -> trình duyệt
+   phải vẽ lại bóng sáng của từng chấm mỗi khung hình. Trên điện thoại: giữ độ sáng cố định, bỏ animation
+   chạy trong SVG (nét đứt trôi, chấm nhấp nháy), vẫn giữ chuyển động bay/xoay của cả khối. */
+@media (max-width: 900px), (pointer: coarse) {
+  html #tiny-wish-decor .tiny-wish-constellation circle,
+  html #tiny-wish-decor .oracle-orbital-spark { animation: none !important; filter: none !important; opacity: .85; }
+  html #tiny-wish-decor .tiny-wish-constellation path,
+  html #tiny-wish-decor .tiny-want-upgrade svg path.wish-guide { animation: none !important; }
+  html #tiny-wish-decor .tiny-upgrade-motif svg { filter: none !important; }
+  /* Nét vẽ-dần (stroke-dashoffset) chạy trên luồng chính -> hiện luôn nét hoàn chỉnh */
+  html #tiny-wish-decor .tiny-want-upgrade svg path.wish-trace,
+  html #tiny-wish-decor #decor-want path.r1,
+  html #tiny-wish-decor #decor-want path.r2,
+  html #tiny-wish-decor #decor-want path.r3 { animation: none !important; stroke-dashoffset: 0 !important; }
+  /* Cánh bướm/chim nháy bằng scale trên từng path SVG: bỏ nháy cánh, vẫn giữ bay lượn cả con */
+  html #decor-health .tiny-bird .left-wing,
+  html #decor-health .tiny-bird .right-wing,
+  html #decor-health .tiny-health-butterfly .left-wing,
+  html #decor-health .tiny-health-butterfly .right-wing { animation: none !important; }
+}
+
 
 /* Mắt hồng sạch — không hue-rotate */
 .con-mat,
@@ -7721,6 +7760,21 @@ a.shop-product {
         // ngay khi trang/media sẵn sàng. Nếu trình duyệt chặn autoplay có tiếng,
         // tương tác đầu tiên sẽ mở khóa (không có cách JS hợp lệ để vượt chính sách đó).
         document.addEventListener('pointerdown', startMusicIfAllowed, {passive:true});
+        // iOS Safari chỉ coi touchend/click là thao tác hợp lệ để mở khóa âm thanh (pointerdown thì không).
+        document.addEventListener('touchend', startMusicIfAllowed, {passive:true});
+        document.addEventListener('click', startMusicIfAllowed, true);
+        // Điện thoại chặn tự phát nhạc khi chưa chạm vào trang: nhắc người xem chạm một lần để bật nhạc.
+        (function () {
+            const hint = document.getElementById('music-wait-hint');
+            if (!hint) return;
+            setTimeout(() => {
+                if (tinySoundtrack.paused && tinySoundtrack.currentTime === 0) {
+                    hint.textContent = 'chạm vào màn hình để bắt đầu ♪';
+                    hint.classList.add('show');
+                }
+            }, 1800);
+            tinySoundtrack.addEventListener('playing', () => hint.classList.remove('show'), {once:true});
+        })();
         document.addEventListener('keydown', startMusicIfAllowed);
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) startMusicIfAllowed();
@@ -11883,7 +11937,7 @@ if(window.TINY_PERF && !window.TINY_PERF.mobile){
     });
   }
   paint();
-  setInterval(paint, 600);
+  setInterval(function () { if (!document.hidden) paint(); }, 2000);
   document.addEventListener('click', function () {
     setTimeout(paint, 50);
     setTimeout(paint, 300);
